@@ -9,6 +9,7 @@
 
   FORKID {04622D27-72F0-45d4-85FB-DB346FD1AE22}
 */
+// bm_dbgmultiaxis = true;
 
 description = "HNC8";
 vendor = "HNC";
@@ -264,7 +265,23 @@ properties = {
         type: "boolean",
         value: true,
         scope: "post"
-    }
+    },
+    useABCPrepositioning: {
+        title: "Use ABC Prepositioning",
+        description: "Inject G0 A B C befor settig trait coordinate system",
+        group: "multiAxis",
+        type: "boolean",
+        value: false,
+        scope: "post"
+    },
+    useMultiAxisFeatures: {
+        title: "Use MultiAxis features",
+        description: "If TRUE use G68.2 for trait coordinate sysstem, else just rotate A axis",
+        group: "multiAxis",
+        type: "boolean",
+        value: true,
+        scope: "post"
+    },
 };
 
 // wcs definiton
@@ -293,7 +310,7 @@ var coolants = [
     { id: COOLANT_OFF, off: 9 }
 ];
 
-var permittedCommentChars = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,=_-";
+var permittedCommentChars = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,=_-:";
 
 var gFormat = createFormat({ prefix: "G", width: 2, zeropad: true, decimals: 1 });
 var mFormat = createFormat({ prefix: "M", width: 2, zeropad: true, decimals: 1 });
@@ -353,12 +370,12 @@ var gRotationModal = createModal({
 
 // fixed settings
 var firstFeedParameter = 500;
-var useMultiAxisFeatures = true;
+var useMultiAxisFeatures = false;
 var forceMultiAxisIndexing = false; // force multi-axis indexing for 3D programs
 var maximumLineLength = 80; // the maximum number of charaters allowed in a line
 var minimumCyclePoints = 5; // minimum number of points in cycle operation to consider for subprogram
 var cancelTiltFirst = true; // cancel G68.2 with G69 prior to G54-G59 WCS block
-var useABCPrepositioning = true; // position ABC axes prior to G68.2 block
+var useABCPrepositioning = false; // position ABC axes prior to G68.2 block
 
 var allowIndexingWCSProbing = false; // specifies that probe WCS with tool orientation is supported
 var probeVariables = {
@@ -601,7 +618,7 @@ function defineMachine() {
 function onOpen() {
     // define and enable machine configuration
     receivedMachineConfiguration = machineConfiguration.isReceived();
-    writeComment('machineConfiguration.isMultiAxisConfiguration: ' + machineConfiguration.isMultiAxisConfiguration())
+    // writeComment('machineConfiguration.isMultiAxisConfiguration: ' + machineConfiguration.isMultiAxisConfiguration())
 
     if (typeof defineMachine == "function") {
         defineMachine(); // hardcoded machine configuration
@@ -669,15 +686,15 @@ function onOpen() {
     if (getProperty("writeMachine") && (vendor || model || description)) {
         writeComment(localize("Machine"));
         if (vendor) {
-            writeComment("  " + localize("vendor") + ": " + vendor);
+            writeComment(localize("vendor") + ": " + vendor);
         }
         if (model) {
-            writeComment("  " + localize("model") + ": " + model);
+            writeComment(localize("model") + ": " + model);
         }
         if (description) {
-            writeComment("  " + localize("description") + ": " + description);
+            writeComment(localize("description") + ": " + description);
         }
-        
+
     }
 
     //Probing Surface Inspection
@@ -824,10 +841,14 @@ var retracted = false; // specifies that the tool has been retracted to the safe
 
 /** Disables length compensation if currently active or if forced. */
 function disableLengthCompensation(force) {
+    // writeComment('disableLengthCompensation')
     if (lengthCompensationActive || force) {
+        // writeComment('lengthCompensationActive=true')
         validate(retracted || skipBlock, "Cannot cancel length compensation if the machine is not fully retracted.");
         writeBlock(gFormat.format(49));
         lengthCompensationActive = false;
+    } else {
+        // writeComment('lengthCompensationActive=false')
     }
 }
 
@@ -1126,16 +1147,18 @@ function forceWorkPlane() {
 }
 
 function defineWorkPlane(_section, _setWorkPlane) {
+    // writeComment('defineWorkPlane')
     var abc = new Vector(0, 0, 0);
     if (forceMultiAxisIndexing || !is3D() || machineConfiguration.isMultiAxisConfiguration()) { // use 5-axis indexing for multi-axis mode
         // set working plane after datum shift
-
+        // writeComment('_section.isMultiAxis: ' + _section.isMultiAxis())
         if (_section.isMultiAxis()) {
             cancelTransformation();
             if (_setWorkPlane) {
                 forceWorkPlane();
             }
             if (machineConfiguration.isMultiAxisConfiguration()) {
+                // writeComment('isMultiAxisConfiguration')
                 abc = _section.getInitialToolAxisABC();
                 if (_setWorkPlane) {
                     if (!retracted) {
@@ -1162,6 +1185,7 @@ function defineWorkPlane(_section, _setWorkPlane) {
                 }
             }
         } else {
+            // writeComment('useMultiAxisFeatures: ' + useMultiAxisFeatures)
             if (useMultiAxisFeatures) {
                 var euler = _section.workPlane.getEuler2(EULER_ZXZ_R);
                 abc = new Vector(euler.x, euler.y, euler.z);
@@ -1184,6 +1208,7 @@ function defineWorkPlane(_section, _setWorkPlane) {
     if (currentSection && (currentSection.getId() == _section.getId())) {
         operationSupportsTCP = (_section.isMultiAxis() || !useMultiAxisFeatures) && _section.getOptimizedTCPMode() == OPTIMIZE_NONE;
     }
+    // writeComment('end defineWorkPlane')
     return abc;
 }
 
@@ -1196,6 +1221,7 @@ function cancelWorkPlane(force) {
 }
 
 function setWorkPlane(abc) {
+    // writeComment('setWorkPlane')
     if (!forceMultiAxisIndexing && is3D() && !machineConfiguration.isMultiAxisConfiguration()) {
         return; // ignore
     }
@@ -1207,6 +1233,7 @@ function setWorkPlane(abc) {
         if (operationNeedsSafeStart) {
             _skipBlock = true;
         } else {
+            // writeComment('No change in workplane')
             return; // no change
         }
     }
@@ -1222,6 +1249,7 @@ function setWorkPlane(abc) {
         if (cancelTiltFirst) {
             skipBlock = _skipBlock;
             cancelWorkPlane();
+            // disableLengthCompensation(false);
         }
         if (machineConfiguration.isMultiAxisConfiguration()) {
             var machineABC = abc.isNonZero() ? getWorkPlaneMachineABC(currentSection.workPlane, false, false) : abc;
@@ -1240,6 +1268,12 @@ function setWorkPlane(abc) {
         if (abc.isNonZero()) {
             skipBlock = _skipBlock;
             gRotationModal.reset();
+            //BM: Added G43.4 before setting trait coordinate system
+            if (lengthCompensationActive) {
+                disableLengthCompensation(false);
+            }
+            writeBlock(gFormat.format(43.4), hFormat.format(tool.lengthOffset));
+            lengthCompensationActive = true;
             writeBlock(gRotationModal.format(68.2), "X" + xyzFormat.format(0), "Y" + xyzFormat.format(0), "Z" + xyzFormat.format(0), "I" + abcFormat.format(abc.x), "J" + abcFormat.format(abc.y), "K" + abcFormat.format(abc.z)); // set frame
             skipBlock = _skipBlock;
             writeBlock(gFormat.format(53.1)); // turn machine
@@ -1264,6 +1298,7 @@ function setWorkPlane(abc) {
     onCommand(COMMAND_LOCK_MULTI_AXIS);
 
     currentWorkPlaneABC = abc;
+    // writeComment('end setWorkPlane')
 }
 
 var closestABC = false; // choose closest machine angles
@@ -1348,6 +1383,7 @@ function areSpatialBoxesSame(_box1, _box2) {
 }
 
 function subprogramDefine(_initialPosition, _abc, _retracted, _zIsOutput) {
+    // writeComment('subprogramDefine')
     // convert patterns into subprograms
     var usePattern = false;
     patternIsActive = false;
@@ -1784,7 +1820,7 @@ function onSection() {
     }
 
     forceXYZ();
-
+    // writeComment('lengthOffset=' + tool.lengthOffset)
     var abc = defineWorkPlane(currentSection, true);
 
     setProbeAngle(); // output probe angle rotations if required
@@ -1804,7 +1840,6 @@ function onSection() {
             zIsOutput = true;
         }
     }
-
     if (insertToolCall || !lengthCompensationActive || operationNeedsSafeStart || retracted || (!isFirstSection() && getPreviousSection().isMultiAxis())) {
         var _skipBlock = !(insertToolCall || retracted);
         var lengthOffset = tool.lengthOffset;
@@ -1821,6 +1856,7 @@ function onSection() {
         disableLengthCompensation(false);
 
         if (!machineConfiguration.isHeadConfiguration()) {
+            // writeComment('machineConfiguration.isHeadConfiguration()==false')
             skipBlock = _skipBlock;
             writeBlock(
                 gAbsIncModal.format(90),
@@ -1835,6 +1871,7 @@ function onSection() {
             );
             lengthCompensationActive = true;
         } else {
+            // writeComment('machineConfiguration.isHeadConfiguration()==true')
             skipBlock = _skipBlock;
             writeBlock(
                 gAbsIncModal.format(90),
@@ -1899,6 +1936,7 @@ function onSection() {
     subprogramDefine(initialPosition, abc, retracted, zIsOutput);
 
     retracted = false;
+    // writeComment('end onSection')
 }
 
 function onDwell(seconds) {
@@ -3116,8 +3154,10 @@ function onCommand(command) {
             onCommand(tool.clockwise ? COMMAND_SPINDLE_CLOCKWISE : COMMAND_SPINDLE_COUNTERCLOCKWISE);
             return;
         case COMMAND_LOCK_MULTI_AXIS:
+            writeBlock(mFormat.format(40))
             return;
         case COMMAND_UNLOCK_MULTI_AXIS:
+            writeBlock(mFormat.format(141))
             return;
         case COMMAND_START_CHIP_TRANSPORT:
             return;
